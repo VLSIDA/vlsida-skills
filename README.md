@@ -35,6 +35,12 @@ Then register each skill you want in your `~/.claude/settings.json`:
 | [`openroad-tcl`](openroad-tcl/) | Offline reference for OpenROAD Tcl commands and arguments. Covers all modules: global/detailed placement, routing, CTS, PDN, floorplan, pin placement, IR drop analysis, and more. Use when writing OpenROAD flow scripts or looking up exact command syntax. |
 | [`sdc-sta`](sdc-sta/) | Reference for OpenSTA and SDC timing commands. Covers `create_clock`, `set_input_delay`, `set_false_path`, `set_multicycle_path`, `report_checks`, multi-corner analysis, and debugging unconstrained paths. Includes a local mirror of the OpenSTA user guide PDF. |
 
+### Research Writing
+
+| Skill | Description |
+|---|---|
+| [`brutal-review`](brutal-review/) | Brutal final-pass reviewer for near-final research paper submissions. Returns a structured triage report: must-fix issues, suggested polish, a terminology consistency table, citation audit, and a "logic cop" summary of overclaims and handwavy arguments. Attributed to Todd Austin. |
+
 ### Cloud / Research Computing
 
 | Skill | Description |
