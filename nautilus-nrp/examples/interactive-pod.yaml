@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: __POD_NAME__
+  namespace: __NAMESPACE__
+  labels:
+    app: __APP_LABEL__
+    user: __USER__
+spec:
+  containers:
+  - name: workspace
+    image: ubuntu:24.04
+    command: ["sleep", "infinity"]
+    volumeMounts:
+    - name: data
+      mountPath: /data
+    resources:
+      requests:
+        memory: 8Gi
+        cpu: 4
+      limits:
+        memory: 16Gi
+        cpu: 8
+    # Uncomment for GPU access:
+    # resources:
+    #   requests:
+    #     nvidia.com/gpu: 1
+    #   limits:
+    #     nvidia.com/gpu: 1
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: __PVC_NAME__
+  restartPolicy: Never

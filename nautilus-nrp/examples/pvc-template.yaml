@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: __PVC_NAME__
+  namespace: __NAMESPACE__
+spec:
+  # rook-cephfs: CephFS shared filesystem (ReadWriteMany)
+  #   - Multiple pods can mount simultaneously
+  #   - Good for shared datasets, home directories, results
+  #
+  # rook-ceph-block: Ceph RBD block storage (ReadWriteOnce)
+  #   - Single pod at a time
+  #   - Higher IOPS, good for databases
+  storageClassName: rook-cephfs
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: __SIZE__

@@ -1,0 +1,114 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __JOB_NAME__
+  namespace: vlsida
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 1
+  template:
+    spec:
+      initContainers:
+      - name: clone-repo
+        image: alpine/git
+        args:
+        - clone
+        - --single-branch
+        - --branch
+        - __BRANCH__
+        - --depth=1
+        - https://github.com/VLSIDA/HighTide.git
+        - /repo
+        volumeMounts:
+        - name: repo
+          mountPath: /repo
+      containers:
+      - name: build
+        image: ubuntu:24.04
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -euo pipefail
+
+          # Install dependencies: curl for bazelisk, git for bazel-orfs fetch,
+          # build-essential for Bazel CC toolchain, python3/time for ORFS flow scripts
+          apt-get update -qq && apt-get install -y -qq \
+            curl git build-essential time \
+            python3 python3-yaml python3-numpy >/dev/null 2>&1
+
+          # Install bazelisk as bazel
+          curl -fsSL -o /usr/local/bin/bazel \
+            https://github.com/bazelbuild/bazelisk/releases/latest/download/bazelisk-linux-amd64
+          chmod +x /usr/local/bin/bazel
+
+          cd /repo
+
+          # Build the design with remote cache (upload if credentials available)
+          CACHE_FLAGS="--remote_cache=https://storage.googleapis.com/hightide-bazel-cache"
+          if [ -f /secrets/gcs/key.json ]; then
+            echo "GCS credentials found, enabling cache upload"
+            CACHE_FLAGS="$CACHE_FLAGS --remote_upload_local_results=true --google_credentials=/secrets/gcs/key.json"
+          else
+            echo "WARNING: GCS credentials not found, cache is read-only"
+          fi
+
+          # When uploading artifacts, force download of all intermediate
+          # outputs (logs, reports, results) so we capture them on cache hits.
+          if [ "__UPLOAD_ARTIFACTS__" = "true" ]; then
+            CACHE_FLAGS="$CACHE_FLAGS --remote_download_outputs=all"
+          fi
+
+          bazel build $CACHE_FLAGS __BAZEL_TARGET__
+
+          # Upload build artifacts to GCS for debug retrieval (when enabled)
+          if [ "__UPLOAD_ARTIFACTS__" = "true" ]; then
+            if [ -f /secrets/gcs/key.json ]; then
+              echo "Uploading build artifacts to GCS..."
+
+              # Install gcloud CLI for storage rsync
+              curl -fsSL https://sdk.cloud.google.com | bash -s -- --disable-prompts >/dev/null 2>&1
+              export PATH="$HOME/google-cloud-sdk/bin:$PATH"
+              gcloud auth activate-service-account --key-file=/secrets/gcs/key.json --quiet 2>&1
+
+              # Extract design path from bazel target //designs/<platform>/<design>:<name>
+              TARGET="__BAZEL_TARGET__"
+              DESIGN_PATH="${TARGET#//}"
+              DESIGN_PATH="${DESIGN_PATH%%:*}"
+
+              ARTIFACT_DIR="bazel-bin/${DESIGN_PATH}"
+              if [ -d "$ARTIFACT_DIR" ]; then
+                # Sync the artifact directory to GCS, resolving symlinks
+                # (bazel-bin is a symlink tree to bazel-out)
+                REAL_DIR=$(readlink -f "$ARTIFACT_DIR")
+                gcloud storage rsync --recursive --delete-unmatched-destination-objects \
+                  "$REAL_DIR" "gs://hightide-bazel-cache/artifacts/${DESIGN_PATH}"
+                echo "Synced to gs://hightide-bazel-cache/artifacts/${DESIGN_PATH}/"
+              else
+                echo "WARNING: artifact directory $ARTIFACT_DIR not found"
+              fi
+            else
+              echo "WARNING: artifact upload requested but GCS credentials not found"
+            fi
+          fi
+        volumeMounts:
+        - name: repo
+          mountPath: /repo
+        - name: gcs-key
+          mountPath: /secrets/gcs
+          readOnly: true
+        resources:
+          requests:
+            memory: __MEM_REQUEST__
+            cpu: __CPU_REQUEST__
+          limits:
+            memory: __MEM_LIMIT__
+            cpu: __CPU_LIMIT__
+      volumes:
+      - name: repo
+        emptyDir: {}
+      - name: gcs-key
+        secret:
+          secretName: gcs-bazel-cache
+          optional: true
+      restartPolicy: Never
