@@ -4,7 +4,7 @@ description: Help create and manage Kubernetes jobs, pods, and persistent storag
 user_invocable: true
 ---
 
-You help the user create and manage workloads on the [National Research Platform (NRP) Nautilus](https://nationalresearchplatform.org/nautilus/) Kubernetes cluster.
+You help the user create and manage workloads on the [National Research Platform (NRP) Nautilus](https://nrp.ai/) Kubernetes cluster.
 
 ## Overview
 

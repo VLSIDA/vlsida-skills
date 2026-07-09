@@ -39,7 +39,7 @@ Then register each skill you want in your `~/.claude/settings.json`:
 
 | Skill | Description |
 |---|---|
-| [`nautilus-nrp`](nautilus-nrp/) | Kubernetes job and storage management on the [National Research Platform (NRP) Nautilus](https://nationalresearchplatform.org/nautilus/) cluster. Includes batch job templates, interactive pod setup, and PVC-based persistent storage patterns. |
+| [`nautilus-nrp`](nautilus-nrp/) | Kubernetes job and storage management on the [National Research Platform (NRP) Nautilus](https://nrp.ai/) cluster. Includes batch job templates, interactive pod setup, and PVC-based persistent storage patterns. |
 | [`gcloud`](gcloud/) | Google Cloud Platform via the `gcloud` CLI. Covers authentication, GCS bucket management, file transfers, GCE VM lifecycle, SSH, disks, and firewall rules. |
 
 ## License
