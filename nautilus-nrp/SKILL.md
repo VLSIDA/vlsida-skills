@@ -26,8 +26,47 @@ This skill includes example scripts and templates in `~/.claude/skills/nautilus-
 - **`run.sh`** — Job submission/management script (from HighTide project)
 - **`interactive-pod.yaml`** — Template for an interactive development pod
 - **`pvc-template.yaml`** — PersistentVolumeClaim template for shared storage
+- **`monitor-job.sh`** — Stream milestones from a running Job into the Claude Code `Monitor` tool (see below)
 
 When the user asks you to create K8s manifests for Nautilus, use these as starting points and adapt them to the user's needs.
+
+## Monitoring Long-Running Jobs with the Monitor Tool
+
+Nautilus batch jobs often run for 30+ minutes (long builds, training runs, RTL-to-GDSII flows). Polling with `kubectl logs -f` ties up the conversation; a one-shot `kubectl wait` hides progress. The Claude Code `Monitor` tool is the right fit: you arm it once with a watcher script, and each emitted line becomes a chat notification while you keep working.
+
+`examples/monitor-job.sh` is a ready-made watcher. Key properties:
+
+- Emits on pod **phase changes** (`Pending` → `Running` → terminal).
+- Emits on **stage milestones** matched by a caller-supplied regex, de-duplicated so the same line isn't spammed.
+- Emits on **terminal job condition** (`Complete` / `Failed`) with a tail of the last 40 log lines, then exits — this is the hand-off back to Claude.
+- Tolerant of transient `kubectl` failures (no `set -e`, `|| true`-style fallbacks via `2>/dev/null`).
+
+### Typical invocation (inline Monitor call)
+
+Don't try to make the script fit every workflow — copy its body into a Monitor call and tune `PATTERN` to the stages/errors you actually care about for that job. Example for a multi-stage hardware build:
+
+```bash
+Monitor(
+  description="coralnpu k8s job milestones",
+  timeout_ms=3600000,
+  persistent=false,
+  command="""
+set +e
+JOB=$CRUZID-hightide-asap7-coralnpu
+NS=vlsida
+PATTERN='synth|floorplan|place|cts|route|final|ERROR|FAILED|Traceback|Killed|OOM|Aborted|INFO: Build completed|Elapsed time'
+# ... body of examples/monitor-job.sh ...
+"""
+)
+```
+
+### Guidance when arming the watcher
+
+- **Cover the failure tail, not just success.** Include `ERROR|FAILED|Traceback|Killed|OOM|Aborted` in the regex. A filter that only matches the happy-path milestones stays silent through a crashloop.
+- **Sleep interval.** Default 60s is right for long jobs on a shared cluster — tighter polling wastes kube-apiserver calls and emits redundant "still running" events. Drop to 10–15s only if you genuinely need fine-grained progress.
+- **Timeout.** Monitor tops out at 1h. For longer runs, let it time out, check job state with `kubectl get job ... -o jsonpath='{.status.conditions[*]}'`, and re-arm. This is normal.
+- **Pod label.** The script selects pods via `-l job-name=$JOB`. If you use a different selector (e.g., `app=hightide,design=X`), update the `kubectl get pod` line.
+- **Never `tail -f` raw logs into Monitor.** Every stdout line becomes a notification — unfiltered logs will auto-stop the monitor for emitting too much. Always grep.
 
 ## Key Nautilus Concepts
 
@@ -54,6 +93,16 @@ nodeSelector:
 ```
 
 ### Job Best Practices on Nautilus
+- **Do NOT force one-pod-per-node** (`podAntiAffinity` on `kubernetes.io/hostname`) unless a job
+  genuinely needs a whole node — it strands the node's other cores (CPU-only NRP nodes have
+  44–380 cores; an 8-core pod would waste the rest). Let the scheduler bin-pack multiple pods per
+  node up to capacity; throughput is then bound by the namespace pod quota, not 1-per-node. Keep
+  resource *requests* honest so the scheduler packs safely.
+- **Never use an idle `sleep` "parking" pod** (e.g. a busybox reader that just mounts a PVC and
+  sleeps) — NRP's admission webhook rejects it: *"pods resources utilization is too low"*. To read
+  a shared PVC, instead `kubectl exec`/`kubectl cp` through an **already-running workload pod** that
+  mounts the same PVC, or run a **short Job that does real work and exits** (e.g. tar the results to
+  stdout). Idle low-usage pods get blocked; working pods don't.
 - Set `ttlSecondsAfterFinished` to auto-cleanup completed jobs (e.g., 3600 for 1 hour)
 - Set `backoffLimit` to control retries (1-2 is typical)
 - Use `restartPolicy: Never` for jobs
