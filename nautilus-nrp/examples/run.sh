@@ -28,6 +28,10 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 TEMPLATE="$SCRIPT_DIR/job-template.yaml"
 NAMESPACE="vlsida"
 
+# CruzID prefix identifies job owner on the shared cluster.
+# Override with USER_CRUZID env var; falls back to $USER.
+CRUZID="${USER_CRUZID:-$USER}"
+
 # Defaults
 BRANCH="main"
 CPU_REQUEST="8"
@@ -84,7 +88,7 @@ if [[ "$MODE" == "status" ]]; then
 fi
 
 if [[ "$MODE" == "delete" ]]; then
-    LABEL_SELECTOR="app=hightide"
+    LABEL_SELECTOR="app=hightide,user=${CRUZID}"
     DESC="all"
     if [[ -n "$FILTER_PLATFORM" ]]; then
         LABEL_SELECTOR="$LABEL_SELECTOR,platform=$FILTER_PLATFORM"
@@ -155,14 +159,16 @@ echo ""
 for entry in "${DESIGNS[@]}"; do
     IFS='|' read -r platform name relpath target <<< "$entry"
 
-    # Create a DNS-safe job name using the leaf directory name
+    # Create a DNS-safe job name prefixed with the submitter's CruzID
+    # so anyone on the shared cluster can identify the owner.
     leaf_name="${relpath##*/}"
-    job_name="hightide-${platform}-${leaf_name}"
+    job_name="${CRUZID}-hightide-${platform}-${leaf_name}"
     job_name=$(echo "$job_name" | tr '[:upper:]' '[:lower:]' | tr '_' '-' | cut -c1-63)
 
     # Generate YAML from template
     yaml=$(sed \
-        -e "s|__JOB_NAME__|${job_name}|g" \
+        -e "s|__CRUZID__-__JOB_NAME__|${job_name}|g" \
+        -e "s|__CRUZID__|${CRUZID}|g" \
         -e "s|__BRANCH__|${BRANCH}|g" \
         -e "s|__BAZEL_TARGET__|${target}|g" \
         -e "s|__UPLOAD_ARTIFACTS__|${UPLOAD_ARTIFACTS}|g" \

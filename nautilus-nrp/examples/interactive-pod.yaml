@@ -1,11 +1,13 @@
 apiVersion: v1
 kind: Pod
 metadata:
-  name: __POD_NAME__
+  # Pod name must start with the submitter's CruzID (e.g., jdoe-dev-shell)
+  # so cluster admins and other users can identify the owner at a glance.
+  name: __CRUZID__-__POD_NAME__
   namespace: __NAMESPACE__
   labels:
     app: __APP_LABEL__
-    user: __USER__
+    user: __CRUZID__
 spec:
   containers:
   - name: workspace

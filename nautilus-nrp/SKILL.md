@@ -31,6 +31,9 @@ When the user asks you to create K8s manifests for Nautilus, use these as starti
 
 ## Key Nautilus Concepts
 
+### Naming Convention
+**All Jobs and Pods must be named with the user's CruzID as a prefix** (e.g., `jdoe-build-sram`, `jdoe-train-run-3`). The cluster is shared, so the prefix is how anyone — including the user — can tell at a glance who owns a running workload. If you don't know the user's CruzID, ask before creating the manifest. Also set a `user: <cruzid>` label on the resource for label-based filtering (`kubectl get jobs -l user=<cruzid>`).
+
 ### Resource Requests
 Nautilus is a shared cluster. Always set both `requests` and `limits`:
 - Set limits to ~2x requests for burst capacity
