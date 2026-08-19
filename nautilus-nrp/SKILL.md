@@ -109,6 +109,60 @@ nodeSelector:
 - Use init containers for repo cloning or setup steps
 - Label everything (`app`, `project`, `user`) for easy bulk management
 
+## Container Images: the NRP GitLab registry
+
+Every time a pod starts it **pulls its container image from a registry**, so your image must live somewhere the cluster can reach. NRP hosts its own GitLab with an integrated **container registry** at `gitlab-registry.nrp-nautilus.io` — it's free for NRP users, pulls fast from inside the cluster, and keeps private images off Docker Hub (whose pull-rate limits bite hard on a shared cluster where hundreds of pods pull at once). **This is the recommended place to store images for Nautilus.**
+
+### One-time setup
+1. Sign in to the NRP GitLab at **https://gitlab.nrp-nautilus.io** (same NRP credentials).
+2. Create a project (e.g. `myproject`). Your image path is then:
+   ```
+   gitlab-registry.nrp-nautilus.io/<gitlab-username-or-group>/<project>[:tag]
+   ```
+   e.g. `gitlab-registry.nrp-nautilus.io/<cruzid>/orfs-fork:latest`.
+3. Create an access token so `docker` (push) and the cluster (pull) can authenticate — a private registry needs auth for **both**:
+   - **Project → Settings → Repository → Deploy tokens** is cleanest (scoped to one project, revocable independently of your account). For least privilege create **two**: one with `write_registry` (push from your workstation) and one with only `read_registry` (the cluster's pull secret).
+   - Or a **personal access token** with `read_registry` + `write_registry` scopes (works across all your projects).
+
+### Push an image
+```bash
+docker login gitlab-registry.nrp-nautilus.io        # username + token (from above)
+
+IMG=gitlab-registry.nrp-nautilus.io/<user>/<project>:latest
+docker build -t "$IMG" .
+docker push "$IMG"
+```
+Tip — avoid shipping your whole working tree as build context by **streaming a minimal context** to `docker build`:
+```bash
+tar cz --exclude=.git --exclude='*/results' Dockerfile src/ | docker build -f Dockerfile -t "$IMG" -
+```
+
+### Let cluster jobs pull a PRIVATE image
+Pods can't use your workstation's `docker login` — they authenticate via an **imagePullSecret** in the namespace. Create a `docker-registry` secret from a **read** token:
+```bash
+kubectl create secret docker-registry nrp-gitlab-pull \
+  --docker-server=gitlab-registry.nrp-nautilus.io \
+  --docker-username=<read-token-username> \
+  --docker-password=<read-token> \
+  -n <namespace>
+```
+Then reference it in every Job/Pod spec (alongside the image):
+```yaml
+spec:
+  imagePullSecrets:
+  - name: nrp-gitlab-pull
+  containers:
+  - name: worker
+    image: gitlab-registry.nrp-nautilus.io/<user>/<project>:latest
+```
+(A **public** project's registry needs no secret — but private is the default and the safer choice.)
+
+### Tips
+- **Give the cluster a read-only token.** It only needs to pull; never put a `write_registry` credential in the pull secret.
+- **`imagePullPolicy: Always` when you reuse a tag.** K8s caches by tag, so if you keep pushing to `:latest`, pods on a warm node may run a stale image. Either set `imagePullPolicy: Always` or push a **unique tag per build** (e.g. a git SHA).
+- **Keep images lean.** Every pod pull moves the whole image over the network; a fat image slows every cold start, and pulls count toward pod-startup time under the namespace pod quota. Multi-stage builds + stripping build tools help a lot.
+- **Secrets are per-namespace.** If you run in multiple namespaces, create the pull secret in each.
+
 ## Persistent Storage on Nautilus
 
 Nautilus provides **CephFS**-backed persistent storage via PersistentVolumeClaims (PVCs). This is the recommended way to keep data across job runs.
