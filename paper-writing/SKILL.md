@@ -1,6 +1,6 @@
 ---
 name: paper-writing
-description: Conventions for writing and editing academic papers (LaTeX). Enforces captions that state the conclusion (not describe the table), a topic comment before every paragraph, units on every table column and plot axis, and consistent compact references. Use whenever creating or editing paper .tex source.
+description: Conventions for writing and editing academic papers (LaTeX). Enforces captions that state the conclusion (not describe the table), a topic comment before every paragraph, units on every table column and plot axis, consistent compact references, an abstract that answers problem/difficulty/approach/results, and a motivating Figure 1. Use whenever creating or editing paper .tex source.
 author: Matthew Guthaus
 user_invocable: true
 ---
@@ -103,7 +103,30 @@ Bibliographies drift into inconsistency; keep every entry to one house style.
 Before finishing, read the reference list top to bottom as a block and check that
 names, venues, and prefixes all follow the same pattern.
 
-## Rule 5 — Open with a motivating example (Figure 1)
+## Rule 5 — The abstract answers four questions, in order
+
+An abstract is not a summary of the sections; it is a self-contained argument that
+makes a reader decide the paper is worth reading. Write it to answer four things,
+in this order, each in roughly one to three sentences:
+
+1. **The problem.** What is wrong or missing? State the gap concretely, not
+   "X is important." The first sentence should name the problem, not the background.
+2. **Why it is difficult.** Why doesn't the obvious/prior approach already solve it?
+   Name the specific obstacle that makes it hard — this is what justifies the paper.
+3. **How we solved it, and why it differs from prior solutions.** The key idea in
+   plain terms, plus the one thing that distinguishes it from what came before
+   (the novelty). If a reader can't tell how this is different, the abstract failed.
+4. **The high-level results.** The headline outcome — the numbers or findings a
+   reader would quote. Be specific ("14--19\% PPA, no single recipe transfers"),
+   not vague ("improves results"). An honest negative result is still a result.
+
+Keep it tight (typically ~150--250 words) and free of citations, undefined
+acronyms, and section cross-references. Every sentence should map to one of the four
+questions; if a sentence answers none of them, cut it. Write the abstract last (or
+rewrite it last), once the results are known, so it promises exactly what the paper
+delivers.
+
+## Rule 6 — Open with a motivating example (Figure 1)
 
 A paper is far stronger when an early figure (usually Figure 1, on page 1–2) gives
 the reader the whole idea before any machinery. Prefer to include one.
