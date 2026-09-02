@@ -176,6 +176,30 @@ specialist wrote it:
 Test: read a passage aloud. If it sounds like a polished press release rather than a
 colleague explaining a result, revise it.
 
+## Rule 8 — Titles are specific, distinctive, and honest
+
+The title is the most-read and most-indexed part of the paper; it has to earn a read
+and stand alone in a citation list.
+
+- **Distinct titles for distinct papers.** Two papers on related work must have
+  clearly different titles, or they get lumped together in search, indexing, and
+  citations. A journal extension should not reuse its conference title: give it a new
+  title that reflects the added contribution, so the two are treated as separate works
+  and do not trip duplicate-submission or self-plagiarism checks.
+- **Name the contribution, not just the topic.** "A Study of X" or "X in Y" says
+  little; a title that states the result or the method is more informative and more
+  citable. Front-load the terms a reader would search for.
+- **Cut empty words.** Drop "Novel," "Efficient," "A Study of," "On the," and similar
+  filler that every paper could claim. "Towards" is fine only when the work is
+  genuinely preliminary.
+- **Do not overclaim.** The title is a promise the paper must keep (Rule 7); avoid
+  sweeping or sensational wording for a specialized result.
+- **Consider a named artifact.** If the contribution is a tool or system, a short
+  memorable name with a descriptive subtitle ("Name: what it does") is both
+  distinctive and searchable, a common pattern in EDA.
+- **Check uniqueness before finalizing.** Search the title (Scholar, DBLP); if it
+  collides with existing work, sharpen it.
+
 ## Workflow
 
 - Compile-check with `pdflatex` before committing; remove build artifacts
