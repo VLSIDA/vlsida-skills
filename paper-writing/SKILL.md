@@ -1,6 +1,6 @@
 ---
 name: paper-writing
-description: Conventions for writing and editing academic papers (LaTeX). Enforces captions that state the conclusion (not describe the table), a topic comment before every paragraph, units on every table column and plot axis, consistent compact references, an abstract that answers problem/difficulty/approach/results, and a motivating Figure 1. Use whenever creating or editing paper .tex source.
+description: Conventions for writing and editing academic papers (LaTeX). Enforces captions that state the conclusion (not describe the table), a topic comment before every paragraph, units on every table column and plot axis, consistent compact references, an abstract that answers problem/difficulty/approach/results, a motivating Figure 1, and human-authored style with AI used only to polish (no AI tells). Use whenever creating or editing paper .tex source.
 author: Matthew Guthaus
 user_invocable: true
 ---
@@ -147,6 +147,33 @@ the reader the whole idea before any machinery. Prefer to include one.
 
 When drafting a new paper, ask early whether such a figure exists; if not, propose
 one. When editing, check that Figure 1 does this job rather than diving into detail.
+
+## Rule 7 — Use AI to polish, but make the work your own
+
+Using an AI assistant to refine wording, check grammar, tighten a sentence, or catch
+a typo is fine. Using it to produce the substance is not: the ideas, the claims, the
+framing, and the voice must be yours. Treat the model as a copy editor, never a
+co-author, and read every suggested change critically before accepting it.
+
+AI-generated prose has recognizable tells. Strip them so the text reads as a human
+specialist wrote it:
+
+- **No sensationalism.** Cut hype: "breakthrough," "revolutionary," "seamlessly,"
+  "powerful," "cutting-edge," "game-changing," "remarkable," "vast." State claims
+  plainly and back them with evidence, not adjectives.
+- **No over-generalization.** The audience is expert reviewers in a narrow field, not
+  a general reader. Do not explain basics they already know, do not open with broad
+  throat-clearing ("In today's world of..."), and do not inflate a specific result
+  into a sweeping one. A specialized paper is precise, not broad.
+- **Fix the grammatical and typographic tells.** Replace em-dashes with commas,
+  colons, or parentheses. Watch for other giveaways: "it is worth noting that,"
+  "importantly," "delve," "underscore," "leverage" (as a verb), "a testament to,"
+  the "not only X but also Y" and "X isn't just Y, it's Z" constructions, reflexive
+  three-item lists, and hedges like "arguably" or "generally." Vary sentence length;
+  AI tends to a monotonous medium-length rhythm.
+
+Test: read a passage aloud. If it sounds like a polished press release rather than a
+colleague explaining a result, revise it.
 
 ## Workflow
 
