@@ -168,9 +168,10 @@ specialist wrote it:
 - **Fix the grammatical and typographic tells.** Replace em-dashes with commas,
   colons, or parentheses. Watch for other giveaways: "it is worth noting that,"
   "importantly," "delve," "underscore," "leverage" (as a verb), "a testament to,"
-  the "not only X but also Y" and "X isn't just Y, it's Z" constructions, reflexive
-  three-item lists, and hedges like "arguably" or "generally." Vary sentence length;
-  AI tends to a monotonous medium-length rhythm.
+  the "not only X but also Y" and "X isn't just Y, it's Z" constructions, framing
+  phrases like "the honest picture," "the honest situation," or "the real story is,"
+  reflexive three-item lists, and hedges like "arguably" or "generally." Vary
+  sentence length; AI tends to a monotonous medium-length rhythm.
 
 Test: read a passage aloud. If it sounds like a polished press release rather than a
 colleague explaining a result, revise it.
