@@ -21,7 +21,8 @@ Then register each skill you want in your `~/.claude/settings.json`:
     "~/.claude/skills/vlsida-skills/openroad-tcl",
     "~/.claude/skills/vlsida-skills/sdc-sta",
     "~/.claude/skills/vlsida-skills/nautilus-nrp",
-    "~/.claude/skills/vlsida-skills/gcloud"
+    "~/.claude/skills/vlsida-skills/gcloud",
+    "~/.claude/skills/vlsida-skills/paper-writing"
   ]
 }
 ```
@@ -40,6 +41,7 @@ Then register each skill you want in your `~/.claude/settings.json`:
 | Skill | Description |
 |---|---|
 | [`brutal-review`](brutal-review/) | Brutal final-pass reviewer for near-final research paper submissions. Returns a structured triage report: must-fix issues, suggested polish, a terminology consistency table, citation audit, and a "logic cop" summary of overclaims and handwavy arguments. Attributed to Todd Austin. |
+| [`paper-writing`](paper-writing/) | House-style conventions for writing and editing LaTeX papers: captions that state the conclusion rather than describe the table, a topic comment before every paragraph to keep the outline focused, units on every table column and plot axis, and consistent compact references. Use while drafting or editing `.tex` source. |
 
 ### Cloud / Research Computing
 
