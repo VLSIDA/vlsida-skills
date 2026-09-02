@@ -103,6 +103,28 @@ Bibliographies drift into inconsistency; keep every entry to one house style.
 Before finishing, read the reference list top to bottom as a block and check that
 names, venues, and prefixes all follow the same pattern.
 
+## Rule 5 — Open with a motivating example (Figure 1)
+
+A paper is far stronger when an early figure (usually Figure 1, on page 1–2) gives
+the reader the whole idea before any machinery. Prefer to include one.
+
+- **Show a toy problem or a preview of the result**, not the system architecture.
+  A small, concrete instance the reader can hold in their head — the smallest thing
+  that makes the problem real and the payoff visible.
+- **It carries the intuition the rest of the paper formalizes.** After Figure 1 the
+  reader should already know what the problem is, why it matters, and roughly what
+  the paper does about it; the body then earns those claims rigorously.
+- **Introduce new terminology here**, in context, where a picture anchors each new
+  term — so later sections can use the vocabulary without re-defining it.
+- **Motivate, don't summarize.** The figure answers "why should I care?" — a
+  before/after, a failure case the method fixes, a worked mini-example — not a block
+  diagram of the pipeline.
+- Its caption still obeys Rule 1 (states the takeaway), and it is referenced from
+  the introduction where the story first needs it.
+
+When drafting a new paper, ask early whether such a figure exists; if not, propose
+one. When editing, check that Figure 1 does this job rather than diving into detail.
+
 ## Workflow
 
 - Compile-check with `pdflatex` before committing; remove build artifacts
