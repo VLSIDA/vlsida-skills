@@ -39,30 +39,103 @@ More examples of the form:
 If a genuinely necessary qualifier can't fit (rare), it goes in the body sentence
 that first references the table (`Table~\ref{...} shows ...`), never the caption.
 
-## Rule 2 — Every paragraph gets a topic comment
+## Rule 2 — Outline mode: every block has a topic comment, and the comments are the paper
 
-Immediately before **every** paragraph (and section/subsection), put a LaTeX
-comment naming that paragraph's single topic. This is the paper's living outline:
-it keeps each paragraph focused on one idea and lets the whole argument be read by
-grepping the comments.
+Immediately before **every** section, subsection, and paragraph, put a LaTeX
+comment stating that block's single argument. Together, these comments are the
+paper's living outline. They serve two jobs at once:
 
-Format: `% >> <LOCATOR>: <topic / claim of this paragraph>`
+1. **Local discipline** — each paragraph is anchored to one claim, so it cannot
+   quietly grow a second topic.
+2. **Global argument** — grepping the comments in reading order reproduces the
+   paper's argument as coherent prose. You can read the outline aloud and hear
+   whether the paper works.
 
-- `<LOCATOR>` = section/paragraph tag, e.g. `II.C.p2`, `IV.A`, `V.A.p3` — so the
-  outline reads in order.
-- `<topic>` = the one thing this paragraph argues. If you cannot write it in a few
-  words, the paragraph is doing too much — split it.
-- Include `[tab:x]` / `[fig:y]` in the comment when the paragraph anchors a float.
+### Format
 
-Example:
-```latex
-% >> II.C.p2 FINDING: effCP ~homoscedastic (~4ps floor); TNS strongly heteroscedastic
-The worst-path metric effCP carries $\sigma\approx3$--$5$\,ps regardless of clock...
+```
+% >> <LOCATOR>[ [FLOAT]]: <one-sentence argument this block makes>
 ```
 
-Grepping `% >>` must reproduce the paper's outline top to bottom. When adding or
-moving a paragraph, add/move its comment too. When a paragraph's content drifts
-from its comment, one of them is wrong — fix it (usually the paragraph).
+- **`<LOCATOR>`** — a hierarchical tag that sorts into reading order. Pick one
+  numbering style per paper (arabic or roman) and use it everywhere:
+  - `4` — section 4
+  - `4.p1` — section 4, paragraph 1 (`p` for paragraph)
+  - `4.2` — subsection 4.2
+  - `4.2.p1` — subsection 4.2, paragraph 1
+  - `4.2.1.p3` — deeper nesting extends the same pattern
+- **`[FLOAT]`** *(optional)* — the label of a figure or table this paragraph
+  anchors: `[fig:overview]`, `[tab:results]`. So a reader scanning the outline
+  sees exactly where each float is introduced.
+- **`<one-sentence argument>`** — a full sentence stating *what the paragraph
+  asserts*, not a topic label. Not `power analysis`; rather
+  `Power falls as designs correlate, so the plan must measure correlation before
+  choosing the sample size.` A topic label ("power analysis") can hide a broken
+  argument; a full sentence fails visibly when the argument is missing or when
+  two paragraphs assert the same thing.
+
+If you cannot compress the paragraph's argument into one sentence, the paragraph
+is doing too much — split it.
+
+Example (in-file):
+```latex
+% >> 3.2: A trace-driven simulator misses effects that only appear on real hardware, so the study checks every prediction against on-die counters.
+\subsection{Validating the simulator}
+
+% >> 3.2.p1 [fig:gap]: On five benchmarks the predicted and measured miss rates diverge by more than the effect the paper studies, so simulation alone cannot decide the study.
+The simulator replays a filtered trace...
+```
+
+### Outline mode: write the outline first, prose second
+
+Reorganizing an outline is cheap; reorganizing prose is expensive. Work in this order:
+
+1. **Draft the outline for a section** — write the `% >> ` comments in order,
+   one per intended paragraph, before writing any prose.
+2. **Read the outline aloud.** If it does not flow as an argument, fix the
+   outline. Add missing links, cut repetitions, resplit paragraphs that carry
+   two claims. This is the cheapest structural edit you will ever make.
+3. **Get alignment on the outline** — with coauthors, advisors, or reviewers
+   pushing back on structure — before writing prose.
+4. **Then write each paragraph** so that its prose asserts exactly the sentence
+   above it, nothing more.
+
+When a paragraph's argument later shifts under revision, update its topic
+comment first, re-read the outline, then edit the prose to match.
+
+### `get_outline.sh` — the paper as a document
+
+Keep a small script at the repo root that greps `% >> ` from every section
+file, in reading order:
+
+```bash
+#!/bin/bash
+grep "% >>" sections/intro.tex
+grep "% >>" sections/related.tex
+grep "% >>" sections/methods.tex
+grep "% >>" sections/experiments.tex
+grep "% >>" sections/conclusion.tex
+```
+
+Running it must print a document you can read as the paper's argument. Run it
+before any structural commit, and any time a reviewer questions the flow.
+
+### Invariants
+
+- **Complete.** Every section, subsection, and paragraph has exactly one topic
+  comment. Adding a paragraph means adding its comment first.
+- **Truthful.** When comment and prose disagree, one of them is wrong; almost
+  always the prose has drifted, and either the prose or the comment needs to
+  change so they match.
+- **In order.** Locators sort into reading order. Moving a paragraph means
+  renumbering it and everything after it.
+- **Preserved when cut.** When you comment out a paragraph but might revisit
+  it, comment out its topic line too by adding an extra `%` (`%% >> 4.2.p3: ...`).
+  The slot stays visible in the outline as a decision to be revisited, rather
+  than silently disappearing.
+- **Audited before commit.** Run `./get_outline.sh` and read it end-to-end.
+  If a section jumps, repeats, or skips a step, fix the argument in the outline
+  before touching prose.
 
 ## Rule 3 — Every table column and plot axis carries units
 
@@ -202,6 +275,8 @@ and stand alone in a citation list.
 
 ## Workflow
 
+- Before any structural edit, run `./get_outline.sh` (Rule 2) and read the outline
+  end-to-end; edit the outline first, then the prose.
 - Compile-check with `pdflatex` before committing; remove build artifacts
   (`*.aux *.log *.pdf *.out`) so they aren't committed.
 - Commit as the paper's author (no AI/Claude attribution, no `Co-Authored-By`),
