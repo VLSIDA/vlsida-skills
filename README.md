@@ -5,27 +5,19 @@ These skills extend [Claude Code](https://claude.ai/code) with domain-specific k
 
 ## What are Claude Code skills?
 
-Skills are context documents that Claude Code loads on demand to gain specialized knowledge or capabilities. Install them by cloning this repo into `~/.claude/skills/`.
+Skills are context documents that Claude Code loads on demand to gain specialized knowledge or capabilities. Claude Code auto-discovers skills under `~/.claude/skills/<name>/SKILL.md`.
 
 ## Installation
 
+Clone the repo somewhere convenient, then run `install.sh` to symlink each skill into `~/.claude/skills/`:
+
 ```bash
-git clone https://github.com/VLSIDA/vlsida-skills ~/.claude/skills/vlsida-skills
+git clone https://github.com/VLSIDA/vlsida-skills ~/vlsida-skills
+cd ~/vlsida-skills
+./install.sh
 ```
 
-Then register each skill you want in your `~/.claude/settings.json`:
-
-```json
-{
-  "skills": [
-    "~/.claude/skills/vlsida-skills/openroad-tcl",
-    "~/.claude/skills/vlsida-skills/sdc-sta",
-    "~/.claude/skills/vlsida-skills/nautilus-nrp",
-    "~/.claude/skills/vlsida-skills/gcloud",
-    "~/.claude/skills/vlsida-skills/paper-writing"
-  ]
-}
-```
+The installer is idempotent: entries that are already symlinks are left alone silently, so it's safe to re-run after pulling updates or adding new skills. If a non-symlink of the same name already exists in `~/.claude/skills/` (e.g., a hand-made copy of an older version), the installer warns and skips rather than overwriting it.
 
 ## Skills
 
