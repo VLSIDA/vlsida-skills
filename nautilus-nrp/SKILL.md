@@ -10,13 +10,115 @@ You help the user create and manage workloads on the [National Research Platform
 
 Nautilus is a shared, NSF-funded Kubernetes cluster for research. Users get a namespace and can run batch Jobs, interactive Pods, and use persistent storage. Access is via `kubectl` after registering at the NRP portal.
 
+## Cluster Policies — HARD LIMITS, read before writing any manifest
+
+Nautilus is shared and NSF-funded; these are enforced, not advisory. Violating
+them gets workloads deleted and repeat offenders banned. Source:
+https://nrp.ai/documentation/userdocs/start/policies/
+
+### What gets you banned
+
+> *"Users running a Job with sleep command or equivalent ... will be banned"*
+
+Enforcement is **utilization-based**, not intent-based. A pod is in violation
+outside these bands, and **more than 4 violating pods** puts the account at risk:
+
+| resource | required utilization vs. request |
+|---|---|
+| CPU | **20–200%** |
+| memory | **20–150%** |
+| GPU | **above 40%** (aim near 100%) |
+
+### Lifetimes and purging
+
+| thing | limit |
+|---|---|
+| interactive pod | destroyed at **6 hours** |
+| long-running deployment | deleted at **2 weeks** unless allow-listed |
+| storage volume | purged after **6 months** unaccessed, without notice |
+| interactive pod cap | **2 GPUs / 32 GB RAM / 16 CPU cores** |
+| A100 quota | **zero by default** for all namespaces — must be requested |
+
+You get **3 notifications** before a workload is deleted.
+
+### Requests and limits
+
+- **`limits` must be within 20% of `requests`.** Not 2x. For >~100 pods/jobs,
+  policy is **`limit == request`**.
+- **Request what you will actually use.** Over-requesting is the usual way to
+  fall below the 20% CPU floor.
+- GPU: `nvidia.com/gpu: N` must be **equal** in requests and limits.
+
+### The shape that is always safe
+
+**Batch Jobs that run to completion.** They finish and exit, so they never
+accumulate idle time and never meet the 6h / 2-week reapers. Prefer **many small
+Jobs over few fat pods**: throughput is bound by the namespace pod quota, not by
+per-pod width, and small honest pods keep utilization high.
+
+### Watch out: parallel workloads with a sequential tail
+
+A job that fans out to N workers and then finishes on **one** thread (bottom-up
+solve → single top-level pass, common in EDA/annealing flows) will show high
+utilization early and near-`1/N` at the end. Sized against peak, it can drift
+under the 20% CPU floor and be flagged. **Size the request against average
+usage, not peak**, or split the phases into separate Jobs.
+
+### Before sizing any sweep
+
+```bash
+kubectl describe quota -n <namespace>      # actual ceilings
+kubectl get pods -n <namespace> -o wide    # what is already running
+```
+
 ## Prerequisites
 
-- `kubectl` configured with Nautilus cluster access
+- An NRP account — register and log in at **https://nrp.ai** via CILogon
 - A namespace allocated to the user's research group
-- NRP portal account: https://portal.nrp-nautilus.io/
+- `kubectl` **and** the `kubelogin` OIDC plugin installed (see below)
+- `~/.kube/config` in place (see below)
 
-See [NRP Nautilus docs](https://docs.nrp-nautilus.io/) for initial setup.
+> The portal moved to **https://nrp.ai**. The old `portal.nrp-nautilus.io` and
+> `docs.nrp-nautilus.io` hosts are superseded; docs now live at
+> https://nrp.ai/documentation/.
+
+### Getting cluster access
+
+**There is no per-user kubeconfig and no "download config" button in the portal.**
+`https://nrp.ai/config` is a single **public** file, identical for every user. It
+carries only the cluster endpoint, the CA cert, and an `exec` block; your identity
+comes from the OIDC browser flow at first use, not from the file. Don't go hunting
+the portal UI for a personalised download — there isn't one.
+
+```bash
+# 1. kubectl
+curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+install -m 0755 kubectl ~/.local/bin/kubectl
+
+# 2. kubelogin -- REQUIRED. Without it the kubeconfig does not work at all.
+#    kubectl invokes it as a credential plugin, so it MUST be on PATH under
+#    the name `kubectl-oidc_login` (install under both names to be safe).
+#    https://github.com/int128/kubelogin
+unzip kubelogin_linux_amd64.zip
+install -m 0755 kubelogin ~/.local/bin/kubelogin
+install -m 0755 kubelogin ~/.local/bin/kubectl-oidc_login
+
+# 3. the shared config
+mkdir -p ~/.kube && chmod 700 ~/.kube
+curl -o ~/.kube/config -fsSL "https://nrp.ai/config"
+
+# 4. verify -- first command triggers the CILogon browser flow, then caches a token
+kubectl config get-contexts          # expect context "nautilus"
+kubectl get pods -n <namespace>      # "No resources found" == working, empty namespace
+```
+
+**Shared-host warning.** The stock config sets
+`--listen-address=0.0.0.0:8000` for the OIDC callback, which binds *all*
+interfaces. On a multi-user login node, change it to `127.0.0.1:8000` (and
+SSH-forward that port if the browser is elsewhere) so another user on the box
+cannot intercept the authorization code.
+
+See [NRP documentation](https://nrp.ai/documentation/) for the rest.
 
 ## Example Templates
 
@@ -75,7 +177,14 @@ PATTERN='synth|floorplan|place|cts|route|final|ERROR|FAILED|Traceback|Killed|OOM
 
 ### Resource Requests
 Nautilus is a shared cluster. Always set both `requests` and `limits`:
-- Set limits to ~2x requests for burst capacity
+- **Keep `limits` within 20% of `requests`** — cluster policy, not a suggestion.
+  (An earlier version of this skill said "~2x requests for burst capacity";
+  that violates policy. For >~100 pods/jobs, policy is `limit == request`.)
+- **Requests must be honest, or you get flagged.** Enforcement is utilization-
+  based: CPU must run at 20–200% of requested, memory at 20–150%, GPU above 40%.
+  More than 4 pods outside those bands puts the account at risk. Requesting 16
+  cores for a workload that is single-threaded most of the time is the common
+  way to trip this.
 - Be conservative — the scheduler is cluster-wide and over-requesting blocks others
 - GPU requests: use `nvidia.com/gpu: N` in both requests and limits (must be equal)
 
@@ -93,13 +202,25 @@ nodeSelector:
 ```
 
 ### Job Best Practices on Nautilus
+
+**Lifetimes and purging (policy).** Interactive pods are destroyed after
+**6 hours**; long-running deployments are deleted after **2 weeks** unless
+allow-listed. You get **3 notifications** before deletion. Storage volumes not
+accessed for **6 months** may be purged without notice. Interactive pods are
+capped at **2 GPUs / 32 GB RAM / 16 CPU cores**.
+
+Batch **Jobs that run to completion are the safe shape** — they finish and exit,
+so they never accumulate idle time and never hit the 6h/2w reapers.
+
 - **Do NOT force one-pod-per-node** (`podAntiAffinity` on `kubernetes.io/hostname`) unless a job
   genuinely needs a whole node — it strands the node's other cores (CPU-only NRP nodes have
   44–380 cores; an 8-core pod would waste the rest). Let the scheduler bin-pack multiple pods per
   node up to capacity; throughput is then bound by the namespace pod quota, not 1-per-node. Keep
   resource *requests* honest so the scheduler packs safely.
-- **Never use an idle `sleep` "parking" pod** (e.g. a busybox reader that just mounts a PVC and
-  sleeps) — NRP's admission webhook rejects it: *"pods resources utilization is too low"*. To read
+- **Never use an idle `sleep` "parking" pod** (e.g. a busybox reader that just
+  mounts a PVC and sleeps). Policy is explicit: *"users running a Job with sleep
+  command or equivalent ... will be banned"*, and NRP's admission webhook rejects
+  it up front: *"pods resources utilization is too low"*. To read
   a shared PVC, instead `kubectl exec`/`kubectl cp` through an **already-running workload pod** that
   mounts the same PVC, or run a **short Job that does real work and exits** (e.g. tar the results to
   stdout). Idle low-usage pods get blocked; working pods don't.
