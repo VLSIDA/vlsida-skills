@@ -92,8 +92,8 @@ under the 20% memory floor across the long synth/place tail and flags the accoun
 
 | stage | make range | resources | why |
 |---|---|---|---|
-| **GRT screen** | `synth .. globalroute` | ~2 CPU, a few GB, 2 threads | light + partly single-threaded; checkpoint the post-GRT working dir to a PVC |
-| **DRT confirm** | `globalroute .. finish` (restore ckpt) | **wide: 8 CPU, route-peak GB, 8 threads** | detailed route is memory-heavy *and* parallel → both CPU and memory util stay in-band because there is no low-use tail |
+| **GRT** (global route) | `synth .. globalroute` | ~2 CPU, a few GB, 2 threads | light + partly single-threaded; checkpoint the post-GRT working dir to a PVC |
+| **DRT** (detailed route) | `globalroute .. finish` (restore ckpt) | **wide: 8 CPU, route-peak GB, 8 threads** | detailed route is memory-heavy *and* parallel → both CPU and memory util stay in-band because there is no low-use tail |
 
 ### Before sizing any sweep
 
