@@ -56,13 +56,44 @@ accumulate idle time and never meet the 6h / 2-week reapers. Prefer **many small
 Jobs over few fat pods**: throughput is bound by the namespace pod quota, not by
 per-pod width, and small honest pods keep utilization high.
 
-### Watch out: parallel workloads with a sequential tail
+### Watch out: multi-phase workloads — split phases that differ in parallelism or memory
 
-A job that fans out to N workers and then finishes on **one** thread (bottom-up
-solve → single top-level pass, common in EDA/annealing flows) will show high
-utilization early and near-`1/N` at the end. Sized against peak, it can drift
-under the 20% CPU floor and be flagged. **Size the request against average
-usage, not peak**, or split the phases into separate Jobs.
+Any job whose resource profile **shifts across phases** is a util-floor hazard: NRP measures
+utilization against your *request*, and a single request can only match one phase. The
+disparity shows up on either axis:
+
+- **CPU** — a job that fans out to N workers and then finishes on **one** thread (bottom-up
+  solve → single top-level pass, common in EDA/annealing flows): request N cores and the
+  serial tail runs at ~`1/N` util, dragging the average under the 20% CPU floor.
+- **Memory** — a brief high-memory phase inside a long low-memory run: request the peak and
+  the long cheap phase sits far under it.
+- Often **both at once**, and the phases can be *dynamic* (data-dependent: which phase is
+  heavy, and how heavy, varies per input).
+
+When the heavy and light work are interleaved inside **one process**, you can only
+`size to average, not peak` (CPU under-request merely throttles; memory under-request risks
+OOM, so leave headroom). But when the phases are **separable stages**, the robust fix is to
+**split at the phase boundary into separate Jobs**, each sized to its own phase, passing
+intermediate state through a PVC (checkpoint at the end of stage 1, restore at the start of
+stage 2). Each Job then has a *flat* profile that matches its request, so both CPU and memory
+stay in-band — and the heavy stage can run at higher parallelism than you'd dare request for
+the whole job. Give the stages distinct Job names but a shared key (e.g. a `-stage1`/`-stage2`
+suffix on the name, same label) so the checkpoint lines up. If a stage is **non-deterministic
+across resource sizes**, verify that splitting reproduces the single-run result before relying
+on it (it often does — e.g. thread count rarely changes the output — but confirm). A pod at
+**≤1 CPU / 2 GB is exempt** from the util rules, so a genuinely tiny screen stage can bypass
+the floor entirely.
+
+**Worked example — OpenROAD RTL-to-GDS (OpenROAD-flow-scripts / ORFS, OpenLane):** the memory case.
+**Detailed routing** briefly spikes to tens of GB and is highly multi-threaded, while
+**synthesis, floorplan, placement, CTS, and global route** dominate wall-clock at a few GB and
+are largely single-threaded. One whole-flow Job sized for the route peak (e.g. 32 GB) sinks
+under the 20% memory floor across the long synth/place tail and flags the account. Split it:
+
+| stage | make range | resources | why |
+|---|---|---|---|
+| **GRT screen** | `synth .. globalroute` | ~2 CPU, a few GB, 2 threads | light + partly single-threaded; checkpoint the post-GRT working dir to a PVC |
+| **DRT confirm** | `globalroute .. finish` (restore ckpt) | **wide: 8 CPU, route-peak GB, 8 threads** | detailed route is memory-heavy *and* parallel → both CPU and memory util stay in-band because there is no low-use tail |
 
 ### Before sizing any sweep
 
