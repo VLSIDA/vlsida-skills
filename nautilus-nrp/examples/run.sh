@@ -1,5 +1,8 @@
 #!/bin/bash
-# Submit HighTide design builds as Kubernetes Jobs on NRP Nautilus.
+# Submit HighTide builds; run from its checkout or set HIGHTIDE_REPO.
+# NRP_NAMESPACE / NRP_CONTEXT configure cluster scope. Equal requests/limits.
+# For a research sweep, use the skill orchestration guidance and full-shape
+# Pod admission preflight; this legacy adapter is not a shared queue controller.
 #
 # Usage:
 #   ./k8s/run.sh [platform] [design]   # single design on a platform
@@ -24,9 +27,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_DIR="${HIGHTIDE_REPO:-$PWD}"
 TEMPLATE="$SCRIPT_DIR/job-template.yaml"
-NAMESPACE="vlsida"
+NAMESPACE="${NRP_NAMESPACE:-vlsida}"
+CONTEXT="${NRP_CONTEXT:-nautilus}"
+kube() { timeout --signal=TERM --kill-after=5s 40s kubectl --context "$CONTEXT" -n "$NAMESPACE" --request-timeout=30s "$@"; }
 
 # CruzID prefix identifies job owner on the shared cluster.
 # Override with USER_CRUZID env var; falls back to $USER.
@@ -35,9 +40,9 @@ CRUZID="${USER_CRUZID:-$USER}"
 # Defaults
 BRANCH="main"
 CPU_REQUEST="8"
-CPU_LIMIT="16"
+CPU_LIMIT="8"
 MEM_REQUEST="64Gi"
-MEM_LIMIT="128Gi"
+MEM_LIMIT="64Gi"
 DRY_RUN=false
 MODE="submit"
 UPLOAD_ARTIFACTS="false"
@@ -48,8 +53,8 @@ FILTER_DESIGN=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --branch)   BRANCH="$2"; shift 2 ;;
-        --cpu)      CPU_REQUEST="$2"; CPU_LIMIT="$((${2} * 2))"; shift 2 ;;
-        --mem)      MEM_REQUEST="$2"; MEM_LIMIT="${2%Gi}"; MEM_LIMIT="$((MEM_LIMIT * 2))Gi"; shift 2 ;;
+        --cpu)      CPU_REQUEST="$2"; CPU_LIMIT="$2"; shift 2 ;;
+        --mem)      MEM_REQUEST="$2"; MEM_LIMIT="$2"; shift 2 ;;
         --upload-artifacts) UPLOAD_ARTIFACTS=true; shift ;;
         --dry-run)  DRY_RUN=true; shift ;;
         --status)   MODE="status"; shift ;;
@@ -76,14 +81,14 @@ done
 # Handle status/delete modes
 if [[ "$MODE" == "status" ]]; then
     echo "Jobs in namespace $NAMESPACE:"
-    kubectl get jobs -n "$NAMESPACE" -l app=hightide \
+    kube get jobs -l "app=hightide,user=$CRUZID" \
         -o custom-columns='NAME:.metadata.name,STATUS:.status.conditions[0].type,COMPLETIONS:.status.succeeded,FAILURES:.status.failed,AGE:.metadata.creationTimestamp' \
-        2>/dev/null || kubectl get jobs -n "$NAMESPACE" -l app=hightide
+        2>/dev/null || kube get jobs -l "app=hightide,user=$CRUZID"
     echo ""
     echo "Pods:"
-    kubectl get pods -n "$NAMESPACE" -l app=hightide \
+    kube get pods -l "app=hightide,user=$CRUZID" \
         -o custom-columns='NAME:.metadata.name,STATUS:.status.phase,NODE:.spec.nodeName' \
-        2>/dev/null || kubectl get pods -n "$NAMESPACE" -l app=hightide
+        2>/dev/null || kube get pods -l "app=hightide,user=$CRUZID"
     exit 0
 fi
 
@@ -100,7 +105,7 @@ if [[ "$MODE" == "delete" ]]; then
         DESC="$DESC/$FILTER_DESIGN"
     fi
     echo "Deleting $DESC hightide jobs in $NAMESPACE..."
-    kubectl delete jobs -n "$NAMESPACE" -l "$LABEL_SELECTOR"
+    kube delete jobs -l "$LABEL_SELECTOR"
     exit 0
 fi
 
@@ -169,6 +174,9 @@ for entry in "${DESIGNS[@]}"; do
     yaml=$(sed \
         -e "s|__CRUZID__-__JOB_NAME__|${job_name}|g" \
         -e "s|__CRUZID__|${CRUZID}|g" \
+        -e "s|__NAMESPACE__|${NAMESPACE}|g" \
+        -e "s|__PLATFORM__|${platform}|g" \
+        -e "s|__DESIGN_LABEL__|$(echo "$name" | tr '[:upper:]' '[:lower:]')|g" \
         -e "s|__BRANCH__|${BRANCH}|g" \
         -e "s|__BAZEL_TARGET__|${target}|g" \
         -e "s|__UPLOAD_ARTIFACTS__|${UPLOAD_ARTIFACTS}|g" \
@@ -179,7 +187,7 @@ for entry in "${DESIGNS[@]}"; do
         "$TEMPLATE")
 
     # Add labels for filtering
-    yaml=$(echo "$yaml" | sed '/^  template:$/a\    metadata:\n      labels:\n        app: hightide\n        platform: '"$platform"'\n        design: '"$(echo "$name" | tr '[:upper:]' '[:lower:]')"'')
+    yaml=$(echo "$yaml" | sed '/^  template:$/a\    metadata:\n      labels:\n        app: hightide\n        user: '"$CRUZID"'\n        platform: '"$platform"'\n        design: '"$(echo "$name" | tr '[:upper:]' '[:lower:]')"'')
 
     if [[ "$DRY_RUN" == true ]]; then
         echo "--- # $platform / $name"
@@ -187,17 +195,13 @@ for entry in "${DESIGNS[@]}"; do
         echo ""
     else
         echo -n "  $platform/$name ($target) ... "
-        if echo "$yaml" | kubectl apply -n "$NAMESPACE" -f - >/dev/null 2>&1; then
+        # Native CREATE refuses an existing name. Preserve it and its evidence.
+        # This legacy HighTide adapter has no experiment queue or retry policy.
+        if echo "$yaml" | kube create -f -; then
             echo "submitted"
         else
-            # Job may already exist — try deleting and resubmitting
-            kubectl delete job "$job_name" -n "$NAMESPACE" --ignore-not-found=true >/dev/null 2>&1
-            if echo "$yaml" | kubectl apply -n "$NAMESPACE" -f - >/dev/null 2>&1; then
-                echo "resubmitted"
-            else
-                echo "FAILED"
-                echo "$yaml" | kubectl apply -n "$NAMESPACE" -f - 2>&1 | sed 's/^/    /'
-            fi
+            echo "FAILED: existing Jobs were preserved; inspect native error before retrying" >&2
+            exit 1
         fi
     fi
 done

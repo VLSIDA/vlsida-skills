@@ -39,7 +39,7 @@ The installer is idempotent: entries that are already symlinks are left alone si
 
 | Skill | Description |
 |---|---|
-| [`nautilus-nrp`](nautilus-nrp/) | Kubernetes job and storage management on the [National Research Platform (NRP) Nautilus](https://nrp.ai/) cluster. Includes batch job templates, interactive pod setup, and PVC-based persistent storage patterns. |
+| [`nautilus-nrp`](nautilus-nrp/) | Kubernetes workload orchestration, monitoring, diagnosis, and recovery on the [National Research Platform (NRP) Nautilus](https://nrp.ai/) cluster. Includes a read-only live dashboard, bounded admission and utilization checks, persistent storage and artifact export patterns, and OpenROAD/ORFS guidance. |
 | [`gcloud`](gcloud/) | Google Cloud Platform via the `gcloud` CLI. Covers authentication, GCS bucket management, file transfers, GCE VM lifecycle, SSH, disks, and firewall rules. |
 
 ## License
