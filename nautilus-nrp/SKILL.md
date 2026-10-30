@@ -1,426 +1,214 @@
 ---
 name: nautilus-nrp
-description: Help create and manage Kubernetes jobs, pods, and persistent storage on the Nautilus NRP research cluster. Includes templates for jobs, interactive pods, and PVC-based persistent storage.
-user_invocable: true
+description: Create, run, monitor, diagnose and recover Kubernetes workloads on NRP Nautilus. Includes read-only live HTML dashboards, bounded monitoring and admission probes, general batch and sweep orchestration, exporting results through Pod logs, and OpenROAD/ORFS guidance (large-design limits, failure text, saved-grid congestion, rendering).
 ---
 
-You help the user create and manage workloads on the [National Research Platform (NRP) Nautilus](https://nrp.ai/) Kubernetes cluster.
+# Nautilus NRP workloads
 
-## Overview
+Use this skill for Nautilus compute, storage and monitoring across builds,
+simulations, ML, data processing, parameter sweeps and EDA. Keep workload
+semantics and execution location defined by the user or repository. OpenROAD
+is an optional specialization, not the assumed workload.
 
-Nautilus is a shared, NSF-funded Kubernetes cluster for research. Users get a namespace and can run batch Jobs, interactive Pods, and use persistent storage. Access is via `kubectl` after registering at the NRP portal.
+## Start with the current context
 
-## Cluster Policies — HARD LIMITS, read before writing any manifest
+Read the project's agent rules and shared/assistant memory. Recover the active
+coordinator, manifest, namespace, PVC, immutable runtime and ownership labels
+before changing a live study. Reuse existing authorization; do not ask again for
+routine steps already requested. A skill update does not authorize sending
+messages, exposing a service, changing unrelated jobs or retrying scientific
+failures. Preserve other assistants' files, processes and evidence.
 
-Nautilus is shared and NSF-funded; these are enforced, not advisory. Violating
-them gets workloads deleted and repeat offenders banned. Source:
-https://nrp.ai/documentation/userdocs/start/policies/
+Choose only the references needed:
 
-### What gets you banned
+- [Orchestration and recovery](references/orchestration.md): quota refill,
+  resource sizing, startup pacing, stop guards that keep finished work,
+  auxiliary Pods beside a live study, admission, metrics gaps, node-loss
+  symptoms and exclusions, cancellation and holds, step-limit changes and
+  step-limit kill races, memory livelock and OOM visibility, native evidence,
+  CephFS recovery, exporting artifacts through stdout, node-local scratch
+  staging and Pod identity recovery.
+- [Live monitoring](references/live-monitoring.md): runnable HTML dashboard,
+  application-ledger schema, admission probe and console watcher.
+- [OpenROAD / ORFS](references/openroad.md): phase pools, endpoints, large-design
+  step limits and memory ramps, diagnostics and failure text, frozen
+  experiments, congestion from the saved global-routing grid, die shots and
+  rendering costs.
+- [Access, images and storage](references/access-images-storage.md): OIDC/SSH,
+  registry credentials and PVC setup. Read when access or staging needs work.
 
-> *"Users running a Job with sleep command or equivalent ... will be banned"*
+## Cluster policy versus operational evidence
 
-Enforcement is **utilization-based**, not intent-based. A pod is in violation
-outside these bands, and **more than 4 violating pods** puts the account at risk:
+Check the [current NRP policies](https://nrp.ai/documentation/userdocs/start/policies/)
+and [NRP guidance for AI assistants](https://nrp.ai/llms.txt) when making
+policy-dependent decisions. Published utilization bands checked 2026-10-29:
 
-| resource | required utilization vs. request |
+| Resource | Published utilization against requests |
 |---|---|
-| CPU | **20–200%** |
-| memory | **20–150%** |
-| GPU | **above 40%** (aim near 100%) |
+| CPU | 20–200% |
+| RAM | 20–150% |
+| GPU | Above 40% |
 
-### Lifetimes and purging
+NRP limits violations to at most four pods; requests and limits must be within
+20%, and equal for more than roughly 100 jobs/pods. The policy documents an
+exception for pods requesting 1 CPU and 2 GB. Observed in 2026-10: the count is
+per user account (other users' Pods in a shared namespace count against their
+own accounts), and exempt-size Pods are still refused while the account is over
+the limit. Auxiliary Pods (rendering, export) can push a study's account over;
+see the orchestration reference. Probe the intended workload shape;
+a tiny probe cannot establish that a large one will be admitted. Do not resize a
+real workload solely to exploit an exception.
 
-| thing | limit |
-|---|---|
-| interactive pod | destroyed at **6 hours** |
-| long-running deployment | deleted at **2 weeks** unless allow-listed |
-| storage volume | purged after **6 months** unaccessed, without notice |
-| interactive pod cap | **2 GPUs / 32 GB RAM / 16 CPU cores** |
-| A100 quota | **zero by default** for all namespaces — must be requested |
+An idle `sleep infinity` batch Job is prohibited. Interactive pods have separate
+rules (including a six-hour lifetime); do not generalize the batch prohibition
+into a ban on every interactive sleep. Use a finite real-work Job for staging or
+export, or an existing healthy workload, rather than an idle batch helper.
 
-You get **3 notifications** before a workload is deleted.
+Keep three facts separate:
 
-### Requests and limits
+1. API access and metrics can work while new Pod admission is refused.
+2. Instantaneous utilization, historical account enforcement and a native
+   admission response can disagree. Missing/stale metrics are unknown, not zero
+   and not healthy. Preserve timestamps and actual error text.
+3. A low-utilization refusal establishes a current launch restriction, not a
+   permanent administrative ban. In observed runs, refusal persisted after
+   current readings returned in band; no fixed clearance ETA is established.
 
-- **`limits` must be within 20% of `requests`.** Not 2x. For >~100 pods/jobs,
-  policy is **`limit == request`**.
-- **Request what you will actually use.** Over-requesting is the usual way to
-  fall below the 20% CPU floor.
-- GPU: `nvidia.com/gpu: N` must be **equal** in requests and limits.
+Do not delete currently healthy workers just because admission still refuses.
+Inspect actual sustained idle/stall evidence and the user's remediation policy.
+Sizing, small startup waves and prebuilt images reduce setup overhead. A startup
+age threshold is a local heuristic, never a promised NRP grace period. In one
+account, refusals followed start bursts in which a third to a half of the Pods
+were young, and each blocked all new Pods for 1–4 hours. Pace starts by account
+size (`scripts/start_budget.py`), start long-lived work first, and move
+CephFS-heavy steps to node-local scratch; see the orchestration reference.
 
-### The shape that is always safe
+## Execution invariants
 
-**Batch Jobs that run to completion.** They finish and exit, so they never
-accumulate idle time and never meet the 6h / 2-week reapers. Prefer **many small
-Jobs over few fat pods**: throughput is bound by the namespace pod quota, not by
-per-pod width, and small honest pods keep utilization high.
+- Use explicit context and namespace. Every automated kubectl call needs both
+  a request timeout and a wall-clock timeout including the OIDC plugin.
+  The Python helpers bound the whole subprocess group.
+- Name resources with the submitter's CruzID and label Jobs AND Pods with owner,
+  workload and phase identifiers. Inspect namespace-wide usage, including other
+  users and controllers; mutate only the authorized workload and exact UIDs.
+- Read real ResourceQuotas, scopes and LimitRanges. A scoped priority-class quota
+  of zero is not a global zero-Pod ceiling. A target such as 200 is a requested
+  ceiling, not evidence of 200 running pods or a universal Nautilus limit.
+- Set CPU, memory and ephemeral-storage requests and limits for every container,
+  including init containers. Template values are illustrative; size them from
+  the workload's measured use and local scratch needs.
+- For maximum independent parallelism, use one eligible case per Job when setup
+  overhead permits. Do not hide a lower per-design cap. Count shared reservations
+  under one coordinator lock before launch. Never fabricate extra cases to fill
+  slots once a finite workload tapers.
+- Probe the full intended Pod spec with `--dry-run=server`. A Job-only dry run
+  does not test the Pods its controller will create. Treat actual refusal as a
+  deferred launch, before consuming an attempt when possible. Dry-run approval
+  is time-specific; real admission can still refuse later.
+- Keep source, images, worker scripts, manifests and endpoint settings immutable
+  for live work. Create new versions for future Jobs instead of editing scripts
+  under a running shell. Record resource-profile transitions and runtime hashes.
+- A Job may finish successfully while individual application cases fail. Maintain
+  per-case outcomes and endpoint receipts. Do not infer scientific success from
+  Job Complete, a log substring or cached stdout with unknown native identity.
+- Keep cancellation durable in the queue and across restarts. Preserve previous
+  completed outcomes; cancel only unfinished work. Infrastructure, OOM, collection
+  and scientific failures remain distinct. Recover only the affected case/phase
+  according to the established retry policy, retaining the original seed and
+  history. Never silently replace a failed scientific observation.
+- Do not scan/export another live writer's PVC tree or clear a claim on age alone.
+  Diagnose progress from native API, own-Pod stdout and bounded own-process
+  inspection. Before recovery prove the old writer and controller are quiescent.
 
-### Watch out: multi-phase workloads — split phases that differ in parallelism or memory
+## Reusable scripts
 
-Any job whose resource profile **shifts across phases** is a util-floor hazard: NRP measures
-utilization against your *request*, and a single request can only match one phase. The
-disparity shows up on either axis:
+[`examples/batch-job.json`](examples/batch-job.json) is a generic suspended-Job
+starter. Replace owner, namespace, image/command, PVC and measured resources;
+its sample CPU/RAM values are illustrative. Use the verified admission and
+UID-bound unsuspend sequence in the orchestration reference. It has no idle
+command, implicit retries or dependency on HighTide/OpenROAD.
 
-- **CPU** — a job that fans out to N workers and then finishes on **one** thread (bottom-up
-  solve → single top-level pass, common in EDA/annealing flows): request N cores and the
-  serial tail runs at ~`1/N` util, dragging the average under the 20% CPU floor.
-- **Memory** — a brief high-memory phase inside a long low-memory run: request the peak and
-  the long cheap phase sits far under it.
-- Often **both at once**, and the phases can be *dynamic* (data-dependent: which phase is
-  heavy, and how heavy, varies per input).
-
-When the heavy and light work are interleaved inside **one process**, you can only
-`size to average, not peak` (CPU under-request merely throttles; memory under-request risks
-OOM, so leave headroom). But when the phases are **separable stages**, the robust fix is to
-**split at the phase boundary into separate Jobs**, each sized to its own phase, passing
-intermediate state through a PVC (checkpoint at the end of stage 1, restore at the start of
-stage 2). Each Job then has a *flat* profile that matches its request, so both CPU and memory
-stay in-band — and the heavy stage can run at higher parallelism than you'd dare request for
-the whole job. Give the stages distinct Job names but a shared key (e.g. a `-stage1`/`-stage2`
-suffix on the name, same label) so the checkpoint lines up. If a stage is **non-deterministic
-across resource sizes**, verify that splitting reproduces the single-run result before relying
-on it (it often does — e.g. thread count rarely changes the output — but confirm). A pod at
-**≤1 CPU / 2 GB is exempt** from the util rules, so a genuinely tiny screen stage can bypass
-the floor entirely.
-
-**Worked example — OpenROAD RTL-to-GDS (OpenROAD-flow-scripts / ORFS, OpenLane):** the memory case.
-**Detailed routing** briefly spikes to tens of GB and is highly multi-threaded, while
-**synthesis, floorplan, placement, CTS, and global route** dominate wall-clock at a few GB and
-are largely single-threaded. One whole-flow Job sized for the route peak (e.g. 32 GB) sinks
-under the 20% memory floor across the long synth/place tail and flags the account. Split it:
-
-| stage | make range | resources | why |
-|---|---|---|---|
-| **GRT** (global route) | `synth .. globalroute` | ~2 CPU, a few GB, 2 threads | light + partly single-threaded; checkpoint the post-GRT working dir to a PVC |
-| **DRT** (detailed route) | `globalroute .. finish` (restore ckpt) | **wide: 8 CPU, route-peak GB, 8 threads** | detailed route is memory-heavy *and* parallel → both CPU and memory util stay in-band because there is no low-use tail |
-
-### Before sizing any sweep
-
-```bash
-kubectl describe quota -n <namespace>      # actual ceilings
-kubectl get pods -n <namespace> -o wide    # what is already running
-```
-
-## Prerequisites
-
-- An NRP account — register and log in at **https://nrp.ai** via CILogon
-- A namespace allocated to the user's research group
-- `kubectl` **and** the `kubelogin` OIDC plugin installed (see below)
-- `~/.kube/config` in place (see below)
-
-> The portal moved to **https://nrp.ai**. The old `portal.nrp-nautilus.io` and
-> `docs.nrp-nautilus.io` hosts are superseded; docs now live at
-> https://nrp.ai/documentation/.
-
-### Getting cluster access
-
-**There is no per-user kubeconfig and no "download config" button in the portal.**
-`https://nrp.ai/config` is a single **public** file, identical for every user. It
-carries only the cluster endpoint, the CA cert, and an `exec` block; your identity
-comes from the OIDC browser flow at first use, not from the file. Don't go hunting
-the portal UI for a personalised download — there isn't one.
+All new helpers use Python's standard library and make **no cluster mutations**.
+`check_admission.py` makes only a non-persisting server-side dry-run request.
+They do not dispatch/retry work, allocate helper pods, publish a site or send
+messages. A read-only dashboard is not a scheduler.
 
 ```bash
-# 1. kubectl
-curl -LO "https://dl.k8s.io/release/$(curl -Ls https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
-install -m 0755 kubectl ~/.local/bin/kubectl
-
-# 2. kubelogin -- REQUIRED. Without it the kubeconfig does not work at all.
-#    kubectl invokes it as a credential plugin, so it MUST be on PATH under
-#    the name `kubectl-oidc_login` (install under both names to be safe).
-#    https://github.com/int128/kubelogin
-unzip kubelogin_linux_amd64.zip
-install -m 0755 kubelogin ~/.local/bin/kubelogin
-install -m 0755 kubelogin ~/.local/bin/kubectl-oidc_login
-
-# 3. the shared config
-mkdir -p ~/.kube && chmod 700 ~/.kube
-curl -o ~/.kube/config -fsSL "https://nrp.ai/config"
-
-# 4. verify -- first command triggers the CILogon browser flow, then caches a token
-kubectl config get-contexts          # expect context "nautilus"
-kubectl get pods -n <namespace>      # "No resources found" == working, empty namespace
+SKILL_DIR="$HOME/.claude/skills/nautilus-nrp"
+python3 "$SKILL_DIR/scripts/live_status.py" \
+  --context nautilus --namespace my-namespace \
+  --selector 'app=my-study,user=my-cruzid' --output ./live-status --once
 ```
 
-**Shared-host warning.** The stock config sets
-`--listen-address=0.0.0.0:8000` for the OIDC callback, which binds *all*
-interfaces. On a multi-user login node, change it to `127.0.0.1:8000` (and
-SSH-forward that port if the browser is elsewhere) so another user on the box
-cannot intercept the authorization code.
-
-See [NRP documentation](https://nrp.ai/documentation/) for the rest.
-
-## Example Templates
-
-This skill includes example scripts and templates in `~/.claude/skills/nautilus-nrp/examples/`:
-
-- **`job-template.yaml`** — Batch Job template (from HighTide project)
-- **`run.sh`** — Job submission/management script (from HighTide project)
-- **`interactive-pod.yaml`** — Template for an interactive development pod
-- **`pvc-template.yaml`** — PersistentVolumeClaim template for shared storage
-- **`monitor-job.sh`** — Stream milestones from a running Job into the Claude Code `Monitor` tool (see below)
-
-When the user asks you to create K8s manifests for Nautilus, use these as starting points and adapt them to the user's needs.
-
-## Monitoring Long-Running Jobs with the Monitor Tool
-
-Nautilus batch jobs often run for 30+ minutes (long builds, training runs, RTL-to-GDSII flows). Polling with `kubectl logs -f` ties up the conversation; a one-shot `kubectl wait` hides progress. The Claude Code `Monitor` tool is the right fit: you arm it once with a watcher script, and each emitted line becomes a chat notification while you keep working.
-
-`examples/monitor-job.sh` is a ready-made watcher. Key properties:
-
-- Emits on pod **phase changes** (`Pending` → `Running` → terminal).
-- Emits on **stage milestones** matched by a caller-supplied regex, de-duplicated so the same line isn't spammed.
-- Emits on **terminal job condition** (`Complete` / `Failed`) with a tail of the last 40 log lines, then exits — this is the hand-off back to Claude.
-- Tolerant of transient `kubectl` failures (no `set -e`, `|| true`-style fallbacks via `2>/dev/null`).
-
-### Typical invocation (inline Monitor call)
-
-Don't try to make the script fit every workflow — copy its body into a Monitor call and tune `PATTERN` to the stages/errors you actually care about for that job. Example for a multi-stage hardware build:
+Omit `--once` for an owned host monitor. Add `--runs-file ./runs.json` for
+parameters, seeds, reported results and artifacts, and `--admission-file` for a
+recorded full-shape probe. The page distinguishes native state, reported case
+outcomes and missing evidence; it has auto refresh, filters, sorting, CSV export,
+quota/freshness panels and optional artifact images. No CDN or telemetry.
 
 ```bash
-Monitor(
-  description="coralnpu k8s job milestones",
-  timeout_ms=3600000,
-  persistent=false,
-  command="""
-set +e
-JOB=$CRUZID-hightide-asap7-coralnpu
-NS=vlsida
-PATTERN='synth|floorplan|place|cts|route|final|ERROR|FAILED|Traceback|Killed|OOM|Aborted|INFO: Build completed|Elapsed time'
-# ... body of examples/monitor-job.sh ...
-"""
-)
+python3 "$SKILL_DIR/scripts/check_admission.py" \
+  --context nautilus --namespace my-namespace --manifest ./job.json \
+  --output ./admission.json
+python3 "$SKILL_DIR/scripts/watch_job.py" \
+  --context nautilus --namespace my-namespace --job my-cruzid-study-001 \
+  --container worker --evidence-dir ./native-evidence
+"$SKILL_DIR/examples/band-check.sh" my-namespace '^my-cruzid-'
 ```
 
-### Guidance when arming the watcher
+For a dispatcher, two offline helpers read saved JSON and never contact the
+cluster. `start_budget.py` turns `band_check.py --json` rows into the number of
+new Pods that keep the still-ramping share under a proportional cap.
+`pod_identity.py` recovers a gone Job's Pod name and UID from saved events or
+Pod snapshots, handling truncated generated names; it exits 3 if any Job is
+ambiguous or missing.
 
-- **Cover the failure tail, not just success.** Include `ERROR|FAILED|Traceback|Killed|OOM|Aborted` in the regex. A filter that only matches the happy-path milestones stays silent through a crashloop.
-- **Sleep interval.** Default 60s is right for long jobs on a shared cluster — tighter polling wastes kube-apiserver calls and emits redundant "still running" events. Drop to 10–15s only if you genuinely need fine-grained progress.
-- **Timeout.** Monitor tops out at 1h. For longer runs, let it time out, check job state with `kubectl get job ... -o jsonpath='{.status.conditions[*]}'`, and re-arm. This is normal.
-- **Pod label.** The script selects pods via `-l job-name=$JOB`. If you use a different selector (e.g., `app=hightide,design=X`), update the `kubectl get pod` line.
-- **Never `tail -f` raw logs into Monitor.** Every stdout line becomes a notification — unfiltered logs will auto-stop the monitor for emitting too much. Always grep.
-
-## Key Nautilus Concepts
-
-### Naming Convention
-**All Jobs and Pods must be named with the user's CruzID as a prefix** (e.g., `jdoe-build-sram`, `jdoe-train-run-3`). The cluster is shared, so the prefix is how anyone — including the user — can tell at a glance who owns a running workload. If you don't know the user's CruzID, ask before creating the manifest. Also set a `user: <cruzid>` label on the resource for label-based filtering (`kubectl get jobs -l user=<cruzid>`).
-
-### Resource Requests
-Nautilus is a shared cluster. Always set both `requests` and `limits`:
-- **Keep `limits` within 20% of `requests`** — cluster policy, not a suggestion.
-  (An earlier version of this skill said "~2x requests for burst capacity";
-  that violates policy. For >~100 pods/jobs, policy is `limit == request`.)
-- **Requests must be honest, or you get flagged.** Enforcement is utilization-
-  based: CPU must run at 20–200% of requested, memory at 20–150%, GPU above 40%.
-  More than 4 pods outside those bands puts the account at risk. Requesting 16
-  cores for a workload that is single-threaded most of the time is the common
-  way to trip this.
-- Be conservative — the scheduler is cluster-wide and over-requesting blocks others
-- GPU requests: use `nvidia.com/gpu: N` in both requests and limits (must be equal)
-
-### Namespaces
-All resources must target the user's namespace. Use `-n <namespace>` on every `kubectl` command, or set a default:
 ```bash
-kubectl config set-context --current --namespace=<namespace>
+python3 "$SKILL_DIR/scripts/band_check.py" my-namespace '^my-cruzid-' --json > rows.json
+python3 "$SKILL_DIR/scripts/start_budget.py" rows.json --pending 3
+python3 "$SKILL_DIR/scripts/pod_identity.py" --jobs jobs.json \
+  --events events.json --snapshots pod_snapshots.jsonl
 ```
 
-### Node Affinity (Optional)
-Nautilus spans many sites. To target specific hardware or locations, use node selectors or affinity rules:
-```yaml
-nodeSelector:
-  nvidia.com/gpu.product: "NVIDIA-A100-SXM4-80GB"
-```
+[`examples/scratch_stage.py`](examples/scratch_stage.py) is a worker-side
+pattern for running a step on node-local scratch with verified stage-in and
+stage-out (temp + fsync + rename + re-read hash, then the done marker).
 
-### Job Best Practices on Nautilus
+To get results out of a finite Pod without reading other Pods' trees, write
+them to its stdout and collect the saved log after it ends.
+`scripts/stdout_artifacts.py` provides the in-Pod `Emitter` (base64 chunks plus
+a SHA-256 event per file, under a per-Pod budget below the kubelet's log
+rotation size) and the host-side `collect`, which keeps only files whose hash
+and size match. [`examples/stdout_export.sh`](examples/stdout_export.sh) does
+the same with bash, gzip and coreutils on a stock image, splitting large files
+into deterministic `gzip -9 -n` parts that follow-up Pods can complete.
 
-**Lifetimes and purging (policy).** Interactive pods are destroyed after
-**6 hours**; long-running deployments are deleted after **2 weeks** unless
-allow-listed. You get **3 notifications** before deletion. Storage volumes not
-accessed for **6 months** may be purged without notice. Interactive pods are
-capped at **2 GPUs / 32 GB RAM / 16 CPU cores**.
-
-Batch **Jobs that run to completion are the safe shape** — they finish and exit,
-so they never accumulate idle time and never hit the 6h/2w reapers.
-
-- **Do NOT force one-pod-per-node** (`podAntiAffinity` on `kubernetes.io/hostname`) unless a job
-  genuinely needs a whole node — it strands the node's other cores (CPU-only NRP nodes have
-  44–380 cores; an 8-core pod would waste the rest). Let the scheduler bin-pack multiple pods per
-  node up to capacity; throughput is then bound by the namespace pod quota, not 1-per-node. Keep
-  resource *requests* honest so the scheduler packs safely.
-- **Never use an idle `sleep` "parking" pod** (e.g. a busybox reader that just
-  mounts a PVC and sleeps). Policy is explicit: *"users running a Job with sleep
-  command or equivalent ... will be banned"*, and NRP's admission webhook rejects
-  it up front: *"pods resources utilization is too low"*. To read
-  a shared PVC, instead `kubectl exec`/`kubectl cp` through an **already-running workload pod** that
-  mounts the same PVC, or run a **short Job that does real work and exits** (e.g. tar the results to
-  stdout). Idle low-usage pods get blocked; working pods don't.
-- Set `ttlSecondsAfterFinished` to auto-cleanup completed jobs (e.g., 3600 for 1 hour)
-- Set `backoffLimit` to control retries (1-2 is typical)
-- Use `restartPolicy: Never` for jobs
-- Use init containers for repo cloning or setup steps
-- Label everything (`app`, `project`, `user`) for easy bulk management
-
-## Container Images: the NRP GitLab registry
-
-Every time a pod starts it **pulls its container image from a registry**, so your image must live somewhere the cluster can reach. NRP hosts its own GitLab with an integrated **container registry** at `gitlab-registry.nrp-nautilus.io` — it's free for NRP users, pulls fast from inside the cluster, and keeps private images off Docker Hub (whose pull-rate limits bite hard on a shared cluster where hundreds of pods pull at once). **This is the recommended place to store images for Nautilus.**
-
-### One-time setup
-1. Sign in to the NRP GitLab at **https://gitlab.nrp-nautilus.io** (same NRP credentials).
-2. Create a project (e.g. `myproject`). Your image path is then:
-   ```
-   gitlab-registry.nrp-nautilus.io/<gitlab-username-or-group>/<project>[:tag]
-   ```
-   e.g. `gitlab-registry.nrp-nautilus.io/<cruzid>/orfs-fork:latest`.
-3. Create an access token so `docker` (push) and the cluster (pull) can authenticate — a private registry needs auth for **both**:
-   - **Project → Settings → Repository → Deploy tokens** is cleanest (scoped to one project, revocable independently of your account). For least privilege create **two**: one with `write_registry` (push from your workstation) and one with only `read_registry` (the cluster's pull secret).
-   - Or a **personal access token** with `read_registry` + `write_registry` scopes (works across all your projects).
-
-### Push an image
 ```bash
-docker login gitlab-registry.nrp-nautilus.io        # username + token (from above)
-
-IMG=gitlab-registry.nrp-nautilus.io/<user>/<project>:latest
-docker build -t "$IMG" .
-docker push "$IMG"
+timeout --signal=TERM --kill-after=5s 40s kubectl --context nautilus \
+  -n my-namespace --request-timeout=30s logs pod/my-cruzid-export-abc12 > pod.log
+python3 "$SKILL_DIR/scripts/stdout_artifacts.py" collect --log pod.log \
+  --out ./artifacts --json ./artifacts/summary.json   # exits 1 if any file is damaged
 ```
-Tip — avoid shipping your whole working tree as build context by **streaming a minimal context** to `docker build`:
+
+For OpenROAD, [`examples/gcell_dump.tcl`](examples/gcell_dump.tcl) dumps the
+congestion grid that global routing saved in an ODB, and
+`scripts/gcell_stats.py` summarizes it over all GCells and outside macros
+(see the OpenROAD reference for why both are needed).
+
 ```bash
-tar cz --exclude=.git --exclude='*/results' Dockerfile src/ | docker build -f Dockerfile -t "$IMG" -
+GCELL_ODB=results/.../5_1_grt.odb GCELL_DUMP=grid.cong \
+  openroad -no_init -exit "$SKILL_DIR/examples/gcell_dump.tcl"
+python3 "$SKILL_DIR/scripts/gcell_stats.py" grid.cong --die-area-um2 3.2e7
 ```
 
-### Let cluster jobs pull a PRIVATE image
-Pods can't use your workstation's `docker login` — they authenticate via an **imagePullSecret** in the namespace. Create a `docker-registry` secret from a **read** token:
-```bash
-kubectl create secret docker-registry nrp-gitlab-pull \
-  --docker-server=gitlab-registry.nrp-nautilus.io \
-  --docker-username=<read-token-username> \
-  --docker-password=<read-token> \
-  -n <namespace>
-```
-Then reference it in every Job/Pod spec (alongside the image):
-```yaml
-spec:
-  imagePullSecrets:
-  - name: nrp-gitlab-pull
-  containers:
-  - name: worker
-    image: gitlab-registry.nrp-nautilus.io/<user>/<project>:latest
-```
-(A **public** project's registry needs no secret — but private is the default and the safer choice.)
+The legacy `examples/monitor-job.sh` and `band-check.sh` CLI entrypoints remain.
+The HighTide-specific `examples/run.sh`/`job-template.yaml` are preserved adapters,
+not a universal sweep controller. They now use equal requests/limits, explicit
+context and bounded API calls, and never delete/recreate a Job after a failed
+submission. For a large research sweep, implement the queue/admission/evidence
+invariants in the orchestration reference instead of treating that adapter as
+an experiment harness.
 
-### Tips
-- **Give the cluster a read-only token.** It only needs to pull; never put a `write_registry` credential in the pull secret.
-- **`imagePullPolicy: Always` when you reuse a tag.** K8s caches by tag, so if you keep pushing to `:latest`, pods on a warm node may run a stale image. Either set `imagePullPolicy: Always` or push a **unique tag per build** (e.g. a git SHA).
-- **Keep images lean.** Every pod pull moves the whole image over the network; a fat image slows every cold start, and pulls count toward pod-startup time under the namespace pod quota. Multi-stage builds + stripping build tools help a lot.
-- **Secrets are per-namespace.** If you run in multiple namespaces, create the pull secret in each.
-
-## Persistent Storage on Nautilus
-
-Nautilus provides **CephFS**-backed persistent storage via PersistentVolumeClaims (PVCs). This is the recommended way to keep data across job runs.
-
-### Creating a PVC
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: my-project-data
-  namespace: <namespace>
-spec:
-  storageClassName: rook-cephfs   # CephFS for shared/multi-read-write
-  accessModes:
-    - ReadWriteMany               # Multiple pods can mount simultaneously
-  resources:
-    requests:
-      storage: 100Gi
-```
-
-Key storage classes on Nautilus:
-| StorageClass | Backend | Access Modes | Use Case |
-|---|---|---|---|
-| `rook-cephfs` | CephFS | ReadWriteMany | Shared data, multi-pod access, home dirs |
-| `rook-ceph-block` | Ceph RBD | ReadWriteOnce | Single-pod databases, high-IOPS workloads |
-
-### Mounting a PVC in a Pod/Job
-```yaml
-containers:
-- name: worker
-  volumeMounts:
-  - name: data
-    mountPath: /data
-volumes:
-- name: data
-  persistentVolumeClaim:
-    claimName: my-project-data
-```
-
-### Persistent Storage Tips
-1. **Use `rook-cephfs` with `ReadWriteMany`** for most research workloads — it lets multiple pods (or jobs) share the same data simultaneously.
-2. **Don't store ephemeral build artifacts on PVCs** — use `emptyDir` volumes for scratch space that doesn't need to persist.
-3. **Pre-populate data with a one-off pod**: Create a simple pod that mounts the PVC, download/copy your dataset, then delete the pod.
-4. **Size generously** — CephFS quotas are soft on Nautilus, but request what you expect to use.
-5. **Back up important data externally** — PVCs are durable but not backed up. Use `gsutil`, `rclone`, or `rsync` to keep copies elsewhere.
-6. **Use subPath** to share one PVC across multiple purposes:
-   ```yaml
-   volumeMounts:
-   - name: data
-     mountPath: /datasets
-     subPath: datasets
-   - name: data
-     mountPath: /results
-     subPath: results
-   ```
-
-### Other Storage Options
-- **GCS / S3 buckets**: Upload results to cloud storage from within jobs (as the HighTide example does with `gcloud storage rsync`). Good for sharing across clusters or with external collaborators.
-- **ConfigMaps / Secrets**: For small config files or credentials (< 1 MiB).
-- **hostPath**: Avoid on Nautilus — pods can land on any node.
-
-## Common Workflows
-
-### Submit a batch job
-```bash
-kubectl apply -n <namespace> -f job.yaml
-```
-
-### Monitor jobs
-```bash
-kubectl get jobs -n <namespace>
-kubectl get pods -n <namespace>
-kubectl logs -f job/<job-name> -n <namespace>
-```
-
-### Start an interactive session
-```bash
-kubectl apply -n <namespace> -f interactive-pod.yaml
-kubectl exec -it -n <namespace> <pod-name> -- /bin/bash
-```
-
-### Clean up
-```bash
-# Delete specific job
-kubectl delete job <job-name> -n <namespace>
-
-# Delete all jobs with a label
-kubectl delete jobs -n <namespace> -l app=myproject
-
-# Delete completed jobs
-kubectl delete jobs -n <namespace> --field-selector status.successful=1
-```
-
-### Check PVC usage
-```bash
-kubectl get pvc -n <namespace>
-kubectl exec -n <namespace> <pod-name> -- df -h /data
-```
-
-## Adapting the HighTide Example
-
-The `examples/run.sh` and `examples/job-template.yaml` show a production pattern for batch job submission:
-- Templated YAML with placeholder substitution
-- Label-based job management (status, delete by filter)
-- Init container for repo cloning
-- Secret mounting for credentials
-- Remote cache integration
-
-When creating new job scripts, adapt this pattern to the user's specific project, replacing the HighTide-specific parts (repo URL, Bazel build commands, GCS cache) with the user's build system and workflow.
+Validate helper changes with `python3 -m unittest discover -s tests -v` from this
+skill directory. Use the offline demo instructions in the monitoring reference;
+validation does not launch compute or touch a live run tree.
