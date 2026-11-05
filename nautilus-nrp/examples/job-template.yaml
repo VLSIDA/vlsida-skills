@@ -4,12 +4,15 @@ metadata:
   # Job name must start with the submitter's CruzID (e.g., jdoe-build-sram)
   # so cluster admins and other users can identify the owner at a glance.
   name: __CRUZID__-__JOB_NAME__
-  namespace: vlsida
+  namespace: __NAMESPACE__
   labels:
+    app: hightide
     user: __CRUZID__
+    platform: __PLATFORM__
+    design: __DESIGN_LABEL__
 spec:
-  ttlSecondsAfterFinished: 3600
-  backoffLimit: 1
+  ttlSecondsAfterFinished: 604800
+  backoffLimit: 0
   template:
     spec:
       initContainers:
@@ -23,6 +26,16 @@ spec:
         - --depth=1
         - https://github.com/VLSIDA/HighTide.git
         - /repo
+        # Illustrative clone/staging resources; adapt to the repository size.
+        resources:
+          requests:
+            cpu: 1
+            memory: 2Gi
+            ephemeral-storage: 10Gi
+          limits:
+            cpu: 1
+            memory: 2Gi
+            ephemeral-storage: 10Gi
         volumeMounts:
         - name: repo
           mountPath: /repo
@@ -105,9 +118,11 @@ spec:
           requests:
             memory: __MEM_REQUEST__
             cpu: __CPU_REQUEST__
+            ephemeral-storage: 20Gi
           limits:
             memory: __MEM_LIMIT__
             cpu: __CPU_LIMIT__
+            ephemeral-storage: 20Gi
       volumes:
       - name: repo
         emptyDir: {}

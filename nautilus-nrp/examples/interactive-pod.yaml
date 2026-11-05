@@ -17,18 +17,17 @@ spec:
     - name: data
       mountPath: /data
     resources:
+      # Illustrative values; measure the interactive workload before sizing.
       requests:
         memory: 8Gi
         cpu: 4
+        ephemeral-storage: 10Gi
       limits:
-        memory: 16Gi
-        cpu: 8
-    # Uncomment for GPU access:
-    # resources:
-    #   requests:
-    #     nvidia.com/gpu: 1
-    #   limits:
-    #     nvidia.com/gpu: 1
+        memory: 8Gi
+        cpu: 4
+        ephemeral-storage: 10Gi
+    # For GPU access, add nvidia.com/gpu: 1 to BOTH existing requests and
+    # limits maps above, retaining the CPU, memory and storage entries.
   volumes:
   - name: data
     persistentVolumeClaim:

@@ -1,0 +1,94 @@
+{
+  "apiVersion": "batch/v1",
+  "kind": "Job",
+  "metadata": {
+    "name": "my-cruzid-my-workload-case001",
+    "namespace": "my-namespace",
+    "labels": {
+      "user": "my-cruzid",
+      "app": "my-workload",
+      "phase": "compute"
+    }
+  },
+  "spec": {
+    "suspend": true,
+    "backoffLimit": 0,
+    "ttlSecondsAfterFinished": 604800,
+    "template": {
+      "metadata": {
+        "labels": {
+          "user": "my-cruzid",
+          "app": "my-workload",
+          "phase": "compute"
+        }
+      },
+      "spec": {
+        "restartPolicy": "Never",
+        "containers": [
+          {
+            "name": "worker",
+            "image": "registry.example.org/my-project/worker:immutable-build-id",
+            "command": [
+              "python3",
+              "/app/run.py",
+              "--case",
+              "case001"
+            ],
+            "resources": {
+              "requests": {
+                "cpu": "4",
+                "memory": "8Gi",
+                "ephemeral-storage": "10Gi"
+              },
+              "limits": {
+                "cpu": "4",
+                "memory": "8Gi",
+                "ephemeral-storage": "10Gi"
+              }
+            },
+            "env": [
+              {
+                "name": "POD_NAME",
+                "valueFrom": {
+                  "fieldRef": {
+                    "fieldPath": "metadata.name"
+                  }
+                }
+              },
+              {
+                "name": "POD_UID",
+                "valueFrom": {
+                  "fieldRef": {
+                    "fieldPath": "metadata.uid"
+                  }
+                }
+              }
+            ],
+            "volumeMounts": [
+              {
+                "name": "data",
+                "mountPath": "/data"
+              },
+              {
+                "name": "scratch",
+                "mountPath": "/scratch"
+              }
+            ]
+          }
+        ],
+        "volumes": [
+          {
+            "name": "data",
+            "persistentVolumeClaim": {
+              "claimName": "my-workload-data"
+            }
+          },
+          {
+            "name": "scratch",
+            "emptyDir": {}
+          }
+        ]
+      }
+    }
+  }
+}
